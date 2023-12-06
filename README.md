@@ -17,8 +17,9 @@ Olive Tree's reports look something like this:
     }
 }
 ```
+To be clear, the value of the `payload` property there is the [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload`.
 
-They get saved to disk on the device and included when sending diagnostics to our support department.
+These reports get saved to disk on the device and included when sending diagnostics to our support department.
 
 Caveat emptor: I am not an experienced Python developer, so I'm sure there are lots of things about this script that could be done differently. :-)
 
@@ -52,7 +53,7 @@ When called in any of these ways, the script will print some metadata from the r
 Via trial and error, I've figured out that:
 
  - Binaries with names like `libsystem_kernel.dylib` and `libsystem_pthread.dylib` (beginning with `lib` and ending with `.dylib`) are in `iOS DeviceSupport/<device>/Symbols/usr/lib/system/<name>`
- - Other names like `UIKitCore` and `Foundation` are either in `iOS DeviceSupport/<device>/Symbols/System/Library/` or `.../Symbols/System/PrivateFrameworks`.
+ - Other names like `UIKitCore` and `Foundation` are either in `iOS DeviceSupport/<device>/Symbols/System/Library/Frameworks` or `.../Symbols/System/PrivateFrameworks`.
 
 The script finds a device folder there that matches the iOS version specified in the report, and then follows those rules to find symbol files for system frameworks it finds in call stack frames.
 
