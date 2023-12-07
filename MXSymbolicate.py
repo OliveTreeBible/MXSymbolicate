@@ -125,7 +125,7 @@ def printFrame(root, level=-1):
         dsymUuid = getDsymUuid(dsymPath)
         if originUuid == dsymUuid:
             # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-            atosResult = subprocess.run(["atos", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8").strip()
+            atosResult = subprocess.run(["atos", "-i", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8").strip()
             if level >= 0:
                 # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
                 print("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
