@@ -134,7 +134,7 @@ def printFrame(root, level=-1):
                 print(atosResult)
             processedLine = True
         else:
-            print("--Warning: UUID of {1} ({2}) does not match expected {3} for {4}".format(dsymPath, dsymUuid, originUuid, originBinaryName))
+            print(f"--Warning: UUID of {dsymPath} ({dsymUuid}) does not match expected {originUuid} for {originBinaryName}")
     
     if processedLine == False:
         print("{0}{1} ({2})".format(indentPrefix, originBinaryName, offset))
