@@ -157,11 +157,11 @@ def printCallstack(callstackTree):
     for stack in callstackTree["callStacks"]:
         rootFrames = stack["callStackRootFrames"]
 
-        # The threadAttributed property indicates whether this is the thread that crashed, in a crash diagnostic
+        # The threadAttributed property indicates whether this is the thread that is "attributed" (crashed in a crash diagnostic)
         crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
 
         for root in rootFrames:
-            print('{0}Call stack {1}:'.format("Crashed: " if crashed else "", index))
+            print('{0}Call stack {1}:'.format("Attributed: " if crashed else "", index))
             printFrame(root, level=-1 if simpleCallStack else 0)
             print("")
             index += 1
@@ -224,6 +224,20 @@ def processCpuDiagnostic(diag):
     callStack = diag["callStackTree"]
     printCallstack(callStack)
 
+def processAppLaunchDiagnostic(diag):
+    meta = diag["diagnosticMetaData"]
+    bundleId = meta["bundleIdentifier"]
+    appVersion = meta["appVersion"]
+    appBuildVersion = meta["appBuildVersion"]
+    osVersion = meta["osVersion"]
+    duration = meta["launchDuration"]
+
+    print("Symbolicating CPU exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    print(f"Launch duration: {duration}")
+
+    callStack = diag["callStackTree"]
+    printCallstack(callStack)
+
 with open(jsonPath, 'r') as jsonFile:
     jsonData = json.loads(jsonFile.read())
 
@@ -272,5 +286,10 @@ with open(jsonPath, 'r') as jsonFile:
         cpuDiags = payload["cpuExceptionDiagnostics"]
         for diag in cpuDiags:
             processCpuDiagnostic(diag)
+
+    if "appLaunchDiagnostics" in payload:
+        launchDiags = payload["appLaunchDiagnostics"]
+        for diag in launchDiags:
+            processAppLaunchDiagnostic(diag)
     
 
