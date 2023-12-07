@@ -73,7 +73,6 @@ There's a surprising lack of documentation on how exactly to use the information
 
 There are various things I'd still love to know:
 
- - In a crash diagnostic, how do I know which thread actually crashed?
  - What does the `callStackPerThread` property in the call stack mean?
  - What's the purpose of the `address` field in the call stack frame objects?
  - What situations trigger disk write exceptions and CPU exceptions?
