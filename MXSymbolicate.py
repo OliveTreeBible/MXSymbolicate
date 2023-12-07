@@ -93,7 +93,8 @@ print("UUID of specified dSYM is {0}".format(getDsymUuid(symbolsFilePath)))
 
 systemLibPath = ""
 
-def printFrame(root):
+# Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
+def printFrame(root, level=-1):
     offset = root["offsetIntoBinaryTextSegment"]
     originBinaryName = root["binaryName"]
     originUuid = root["binaryUUID"]
@@ -117,14 +118,17 @@ def printFrame(root):
             dsymPath = systemLibPath + "System/Library/PrivateFrameworks/{0}.framework/{0}".format(originBinaryName)
 
     processedLine = False
+    spacer = "|  "
+    indentPrefix = spacer * level if level >= 0 else ""
+    
     if os.path.exists(dsymPath):
         dsymUuid = getDsymUuid(dsymPath)
         if originUuid == dsymUuid:
             # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-            atosResult = subprocess.run(["atos", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8").strip()
-            if sampleCount > 0:
-                # If we have a sample count, this is a cpu diagnostic. Print it sort of like how spindumps are formatted.
-                print("{0}: {1}".format(sampleCount, atosResult))
+            atosResult = subprocess.run(["atos", "-i", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8").strip()
+            if level >= 0:
+                # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
+                print("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
             else:
                 # Crash diagnostic or otherwise
                 print(atosResult)
@@ -133,24 +137,32 @@ def printFrame(root):
             print("--Warning: UUID of {1} ({2}) does not match expected {3} for {4}".format(dsymPath, dsymUuid, originUuid, originBinaryName))
     
     if processedLine == False:
-        print("{0} ({1})".format(originBinaryName, offset))
+        print("{0}{1} ({2})".format(indentPrefix, originBinaryName, offset))
 
     if "subFrames" in root:
         frames = root["subFrames"]
+        if level >= 0:
+            level = level + 1
         for sub in frames:
-            printFrame(sub)
+            printFrame(sub, level=level)
 
 
 def printCallstack(callstackTree):
-    index = 1
+    index = 0
+
+    # The callStackPerThread property indicates whether each object in callStackRootFrames can be relied on to have one linear call stack.
+    # When this property is false, it means this is a report like a spindump, where it's going to show multiple stacks at a time with sample counts.
+    # In that case we format it like a spindump, with each line indented further than the last one, to make the hierarchy clear.
+    simpleCallStack = callstackTree["callStackPerThread"] if "callStackPerThread" in callstackTree else False
     for stack in callstackTree["callStacks"]:
         rootFrames = stack["callStackRootFrames"]
-        if len(rootFrames) != 1:
-            print("More than one thing in rootFrames!")
+
+        # The threadAttributed property indicates whether this is the thread that crashed, in a crash diagnostic
+        crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
 
         for root in rootFrames:
-            print('Call stack {0}:'.format(index))
-            printFrame(root)
+            print('{0}Call stack {1}:'.format("Crashed: " if crashed else "", index))
+            printFrame(root, level=-1 if simpleCallStack else 0)
             print("")
             index += 1
 

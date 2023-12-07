@@ -73,10 +73,5 @@ There's a surprising lack of documentation on how exactly to use the information
 
 There are various things I'd still love to know:
 
- - In a crash diagnostic, how do I know which thread actually crashed?
- - What does the `callStackPerThread` property in the call stack mean?
- - What's the purpose of the `address` field in the call stack frame objects?
- - What situations trigger disk write exceptions and CPU exceptions?
- - What are the complete rules about where to find dSYM files for system frameworks?
- - Call stacks are formatted as recursive objects, with each frame having a `subFrames` object. Usually these contain only one object, but sometimes there's more. Why?
- - Sometimes the `callStackRootFrames` array has more than one object in it. Why?
+ - What's the purpose of the `address` field in the call stack frame objects? The forum post I linked above doesn't seem to use it, and I've got symbolication working without it. But [this thread](https://github.com/ChimeHQ/Meter/issues/3) seems to indicate that sometimes it's needed.
+ - What are the complete rules about where to find symbol files for system frameworks?
