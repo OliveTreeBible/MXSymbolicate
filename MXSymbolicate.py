@@ -54,6 +54,8 @@ signalTypes = {1: "SIGHUP",
                 30: "SIGUSR1",
                 31: "SIGUSR2"}
 
+binaryUuids = {}
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--report-path", help="Path to MetricKit diagnostic report")
 parser.add_argument("--symbols-path", help="Path to symbols file, either xcarchive or dSYM")
@@ -85,9 +87,13 @@ if not os.path.exists(symbolsFilePath):
     exit(0)
 
 def getDsymUuid(path):
-    uuidResultLine = subprocess.run(["dwarfdump", "--uuid", path], stdout=subprocess.PIPE).stdout.decode("utf-8")
-    dsymUuid = re.search("UUID: ([0-9A-Za-z\-]+?) \(.+", uuidResultLine).group(1)
-    return dsymUuid
+    global binaryUuids
+    if path not in binaryUuids:
+        uuidResultLine = subprocess.run(["dwarfdump", "--uuid", path], stdout=subprocess.PIPE).stdout.decode("utf-8")
+        dsymUuid = re.search("UUID: ([0-9A-Za-z\-]+?) \(.+", uuidResultLine).group(1)
+        binaryUuids[path] = dsymUuid
+
+    return binaryUuids[path]
 
 print("UUID of specified dSYM is {0}".format(getDsymUuid(symbolsFilePath)))
 
