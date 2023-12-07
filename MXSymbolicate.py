@@ -92,15 +92,23 @@ def getDsymUuid(path):
 print("UUID of specified dSYM is {0}".format(getDsymUuid(symbolsFilePath)))
 
 systemLibPath = ""
+forceHierarchical = False
 
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
 def printFrame(root, level=-1):
-    offset = root["offsetIntoBinaryTextSegment"]
-    originBinaryName = root["binaryName"]
-    originUuid = root["binaryUUID"]
+    offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
+    originBinaryName = root["binaryName"] if "binaryName" in root else None
+    originUuid = root["binaryUUID"] if "binaryUUID" in root else None
     sampleCount = 0
     if "sampleCount" in root:
         sampleCount = root["sampleCount"]
+
+    spacer = "|  "
+    indentPrefix = spacer * level if level >= 0 else ""
+
+    if not offset or not originBinaryName or not originUuid:
+        print(f"{indentPrefix}<missing information in frame>")
+        return
 
     dsymPath = ""
     architecture = "arm64e"
@@ -122,14 +130,14 @@ def printFrame(root, level=-1):
             dsymPath = systemLibPath + "System/Library/PrivateFrameworks/{0}.framework/{0}".format(originBinaryName)
 
     processedLine = False
-    spacer = "|  "
-    indentPrefix = spacer * level if level >= 0 else ""
+    errorReason = ""
     
     if os.path.exists(dsymPath):
         dsymUuid = getDsymUuid(dsymPath)
         if originUuid == dsymUuid:
             # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-            atosResult = subprocess.run(["atos", "-i", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8").strip()
+            atosResult = subprocess.run(["atos", "-i", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
+            atosResult = atosResult.strip().replace("\n", " <newline> ")
             if level >= 0:
                 # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
                 print("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
@@ -138,10 +146,12 @@ def printFrame(root, level=-1):
                 print(atosResult)
             processedLine = True
         else:
-            print(f"--Warning: UUID of {dsymPath} ({dsymUuid}) does not match expected {originUuid} for {originBinaryName}")
-    
+            errorReason = "UUID mismatch"
+    else:
+        errorReason = "symbols not found"
+
     if processedLine == False:
-        print("{0}{1} ({2})".format(indentPrefix, originBinaryName, offset))
+        print(f"{indentPrefix}<WARNING, {errorReason}> {originBinaryName} ({offset})")
 
     if "subFrames" in root:
         frames = root["subFrames"]
@@ -158,6 +168,10 @@ def printCallstack(callstackTree):
     # When this property is false, it means this is a report like a spindump, where it's going to show multiple stacks at a time with sample counts.
     # In that case we format it like a spindump, with each line indented further than the last one, to make the hierarchy clear.
     simpleCallStack = callstackTree["callStackPerThread"] if "callStackPerThread" in callstackTree else False
+    global forceHierarchical
+    if forceHierarchical:
+        simpleCallStack = False
+
     for stack in callstackTree["callStacks"]:
         rootFrames = stack["callStackRootFrames"]
 
@@ -235,6 +249,10 @@ def processAppLaunchDiagnostic(diag):
     appBuildVersion = meta["appBuildVersion"]
     osVersion = meta["osVersion"]
     duration = meta["launchDuration"]
+
+    #App launch diagnostics should be formatted like spindumps, but the callStackPerThread value is true, seemingly wrongly
+    global forceHierarchical
+    forceHierarchical = True
 
     print("Symbolicating CPU exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
     print(f"Launch duration: {duration}")
