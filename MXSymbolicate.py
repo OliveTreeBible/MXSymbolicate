@@ -111,6 +111,10 @@ def printFrame(root, level=-1):
     elif originBinaryName.startswith("lib") and originBinaryName.endswith(".dylib"):
         # A binary name like libsystem_kernel.dylib is going to be in <device folder>/usr/lib/system
         dsymPath = systemLibPath + "usr/lib/system/" + originBinaryName
+        if not os.path.exists(dsymPath):
+            dsymPath = systemLibPath + "usr/lib/" + originBinaryName
+    elif originBinaryName == "dyld":
+        dsymPath = systemLibPath + "usr/lib/dyld"
     else:
         # Other binary names like Foundation or UIKitCore are going to be either in <device folder>/System/Library/Frameworks or <device folder>/System/Library/PrivateFrameworks
         dsymPath = systemLibPath + "System/Library/Frameworks/{0}.framework/{0}".format(originBinaryName)
@@ -254,17 +258,26 @@ with open(jsonPath, 'r') as jsonFile:
     # Find the folder containing system libraries for this OS version.
     # Folder names here for modern iOS versions are formatted like `<device model> <OS version> <OS build>`
     # For example: `iPad13,16 17.1 (21B5045h)`
-    # So we look for a folder containing the OS version from the report
+    # So we look for a folder containing the OS version from the report, ideally matching device type
+    isiPad = deviceType.startswith("iPad")
+    isiPhone = deviceType.startswith("iPhone")
+    foundDeviceTypeMatch = False
+
     startPath = "~/Library/Developer/Xcode/iOS DeviceSupport/"
     startPath = os.path.expanduser(startPath)
     for deviceFolder in os.listdir(startPath):
         if osVersion in deviceFolder:
-            systemLibPath = startPath + deviceFolder + "/Symbols/"
-            print("Found system library path for {0}: {1}".format(osVersion, systemLibPath))
-            break
+            if (isiPad and "iPad" in deviceFolder) or (isiPhone and "iPhone" in deviceFolder):
+                systemLibPath = startPath + deviceFolder
+                foundDeviceTypeMatch = True
+            elif foundDeviceTypeMatch == False:
+                systemLibPath = startPath + deviceFolder
 
     if len(systemLibPath) == 0:
-        print("Warning: failed to find system library path for {0}".format(osVersion))
+        print(f"Warning: failed to find system library path for {osVersion} {deviceType}")
+    else:
+        systemLibPath = systemLibPath + "/Symbols/"
+        print(f"Found system library path for {osVersion} {deviceType}: {systemLibPath}")
         
     print("")
 

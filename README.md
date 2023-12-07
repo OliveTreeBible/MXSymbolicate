@@ -50,10 +50,11 @@ When called in any of these ways, the script will print some metadata from the r
 
 `MXSymbolicate` uses the dSYM provided to it via `--symbols-path` to symbolicate call stack frames in the source app. But it needs separate dSYM files for system libraries like `UIKit` and `libsystem_kernel.dylib`. As it turns out, these are available for any iOS version that's been on a device you've connected to Xcode in `~/Library/Developer/Xcode/iOS DeviceSupport`. Folders there appear to be named according to device and OS version: `<device type> <os version> <os build number>`, ex. `iPad13,16 17.0 (21A329)`.
 
-Via trial and error, I've figured out that:
+Via trial and error, I've figured out that in this `iOS DeviceSupport/<device>/Symbols` folder:
 
- - Binaries with names like `libsystem_kernel.dylib` and `libsystem_pthread.dylib` (beginning with `lib` and ending with `.dylib`) are in `iOS DeviceSupport/<device>/Symbols/usr/lib/system/<name>`
- - Other names like `UIKitCore` and `Foundation` are either in `iOS DeviceSupport/<device>/Symbols/System/Library/Frameworks` or `.../Symbols/System/PrivateFrameworks`.
+ - Binaries with names like `libsystem_kernel.dylib` and `libsystem_pthread.dylib` (beginning with `lib` and ending with `.dylib`) are in `usr/lib/system/<name>` or `usr/lib/<name`
+ - `dyld` is at `usr/lib/dyld`
+ - Other names like `UIKitCore` and `Foundation` are either in `System/Library/Frameworks/<name>.framework` or `System/PrivateFrameworks/<name>.framework`.
 
 The script finds a device folder there that matches the iOS version specified in the report, and then follows those rules to find symbol files for system frameworks it finds in call stack frames.
 
