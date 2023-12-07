@@ -142,14 +142,15 @@ def printFrame(root):
 
 
 def printCallstack(callstackTree):
-    index = 1
+    index = 0
     for stack in callstackTree["callStacks"]:
         rootFrames = stack["callStackRootFrames"]
+        crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
         if len(rootFrames) != 1:
             print("More than one thing in rootFrames!")
 
         for root in rootFrames:
-            print('Call stack {0}:'.format(index))
+            print('{0}Call stack {1}:'.format("Crashed: " if crashed else "", index))
             printFrame(root)
             print("")
             index += 1
