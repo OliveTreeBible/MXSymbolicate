@@ -88,3 +88,5 @@ There are various things I'd still love to know:
  - What are the complete rules about where to find symbol files for system frameworks?
    - Do any frameworks vary more granularly than across iOS versions? UIKit symbols don't seem to match UUIDs within the same iOS version, for example.
  - App launch diagnostic reports have multiple call stack paths with sample counts, so they should be formatted like a spindump, but the `callStackPerThread` property is `true`. Is this wrong? Or am I wrong to think that `callStackPerThread` being `false` is what should trigger spindump-like formatting?
+ - I've seen at least one report that has call stack frames from the same binary with different UUIDs. Specifically SwiftUI. What's going on there?
+ 
