@@ -306,25 +306,18 @@ print("UUID of specified symbols file is {0}".format(getDsymUuid(symbolsFilePath
 with open(jsonPath, 'r') as jsonFile:
     jsonData = json.loads(jsonFile.read())
 
-    custId = jsonData["customer_id"]
-    timestamp = jsonData["timestamp"]
-    osVersion = jsonData["os_version"]
-    deviceType = jsonData["device_model"]
-    reportDate = datetime.datetime.fromtimestamp(timestamp, datetime.timezone.utc).isoformat()
+    custId = jsonData.get("customer_id")
+    timestamp = jsonData.get("timestamp")
+    osVersion = jsonData.get("os_version")
+    deviceType = jsonData.get("device_model")
 
-    print("Customer ID: {0}".format(custId))
-    print("Date of report on device: {0}".format(reportDate))
-    print("Device: {0}, {1}".format(deviceType, osVersion))
-    
-    # Find the folder containing system libraries for this OS version.
-    # Folder names here for modern iOS versions are formatted like `<device model> <OS version> <OS build>`
-    # For example: `iPad13,16 17.1 (21B5045h)`
-    # So we look for a folder containing the OS version from the report, ideally matching device type
-    isiPad = deviceType.startswith("iPad")
-    isiPhone = deviceType.startswith("iPhone")
-    foundDeviceTypeMatch = False
-        
-    print("")
+    if custId and timestamp and osVersion and deviceType:
+        reportDate = datetime.datetime.fromtimestamp(timestamp, datetime.timezone.utc).isoformat()
+
+        print("Customer ID: {0}".format(custId))
+        print("Date of report on device: {0}".format(reportDate))
+        print("Device: {0}, {1}".format(deviceType, osVersion))
+        print("")
 
     payload = jsonData["payload"]
 

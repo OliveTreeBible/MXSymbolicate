@@ -2,24 +2,17 @@
 
 `MXSymbolicate.py` is an example python script for symbolicating call stacks in json-formatted diagnostic reports produced by [MetricKit](https://developer.apple.com/documentation/metrickit).
 
-It's specifically written to deal with the diagnostic reports as saved by the [Olive Tree Bible App](https://apps.apple.com/us/app/bible-app-read-study-daily/id332615624), in which iOS report json is embedded in a root object with some other properties for convenience. The script will not work if given an unmodified MetricKit diagnosic report, but can be modified reasonably easily to do so. It's meant as an example, not as a plug-and-play tool.
-
-Olive Tree's reports look something like this:
+It's specifically written to deal with the diagnostic reports as saved by the [Olive Tree Bible App](https://apps.apple.com/us/app/bible-app-read-study-daily/id332615624), in which iOS report json is embedded in a root object with some other properties for convenience. It'll work without those root properties, though, so you can feed it a json file with the diagnostic json in the root object like this:
 
 ```
 {
-    "app_version": "7.15.1.1958",
-    "device_model": "iPhone12,1",
-    "os_version": "17.1.1",
-    "timestamp": "2023-11-22T08:59:34.783Z",
     "payload": {
         ...MetricKit payload here...
     }
 }
 ```
-To be clear, the value of the `payload` property there is the [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload`.
 
-These reports get saved to disk on the device and included when sending diagnostics to our support department.
+To be clear, the value of the `payload` property there is the [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload`.
 
 Caveat emptor: I am not an experienced Python developer, so I'm sure there are lots of things about this script that could be done differently. :-)
 
