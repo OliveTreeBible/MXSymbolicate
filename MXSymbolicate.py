@@ -275,7 +275,7 @@ def processAppLaunchDiagnostic(diag):
     global forceHierarchical
     forceHierarchical = True
 
-    print("Symbolicating CPU exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    print("Symbolicating app launch diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
     print(f"Launch duration: {duration}")
 
     callStack = diag["callStackTree"]
