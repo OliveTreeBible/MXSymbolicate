@@ -55,37 +55,6 @@ signalTypes = {1: "SIGHUP",
                 31: "SIGUSR2"}
 
 binaryUuids = {}
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--report-path", help="Path to MetricKit diagnostic report")
-parser.add_argument("--symbols-path", help="Path to symbols file, either xcarchive or dSYM")
-parser.add_argument("--binary-name", help="Binary name. Pulled from the file name of the symbols path if not specified.")
-
-args = parser.parse_args()
-
-if not args.report_path or not args.symbols_path:
-    print("Report path and symbols path are required.")
-    exit(1)
-
-jsonPath = args.report_path
-symbolsFilePath = args.symbols_path
-
-binaryName = ""
-if args.binary_name:
-    binaryName = args.binary_name
-else:
-    symbolFileName = symbolsFilePath.split("/")[-1]
-    binaryName = symbolFileName.split(".")[0]
-
-if symbolsFilePath.endswith(".xcarchive"):
-    symbolsFilePath = "{0}/dSYMs/{1}.app.dSYM/Contents/Resources/DWARF/{1}".format(symbolsFilePath, binaryName)
-    
-print("Binary name: {0}".format(binaryName))
-
-if not os.path.exists(symbolsFilePath):
-    print("dSYM path '{0}' does not exist".format(symbolsFilePath))
-    exit(0)
-
 def getDsymUuid(path):
     global binaryUuids
     if path not in binaryUuids:
@@ -94,6 +63,7 @@ def getDsymUuid(path):
         binaryUuids[path] = dsymUuid
 
     return binaryUuids[path]
+
 
 symbolFiles = {}
 def getSymbolFile(originBinaryName, uuid):
@@ -152,10 +122,6 @@ def getSymbolFile(originBinaryName, uuid):
 
     return symbolFiles[key]
 
-print("UUID of specified dSYM is {0}".format(getDsymUuid(symbolsFilePath)))
-
-forceHierarchical = False
-
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
 def printFrame(root, level=-1):
     offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
@@ -202,6 +168,7 @@ def printFrame(root, level=-1):
             printFrame(sub, level=level)
 
 
+forceHierarchical = False
 def printCallstack(callstackTree):
     index = 0
 
@@ -300,6 +267,41 @@ def processAppLaunchDiagnostic(diag):
 
     callStack = diag["callStackTree"]
     printCallstack(callStack)
+
+
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--report-path", help="Path to MetricKit diagnostic report")
+parser.add_argument("--symbols-path", help="Path to symbols file, either xcarchive or dSYM")
+parser.add_argument("--binary-name", help="Binary name. Pulled from the file name of the symbols path if not specified.")
+
+args = parser.parse_args()
+
+if not args.report_path or not args.symbols_path:
+    print("Report path and symbols path are required.")
+    exit(1)
+
+jsonPath = args.report_path
+symbolsFilePath = args.symbols_path
+
+binaryName = ""
+if args.binary_name:
+    binaryName = args.binary_name
+else:
+    symbolFileName = symbolsFilePath.split("/")[-1]
+    binaryName = symbolFileName.split(".")[0]
+
+if symbolsFilePath.endswith(".xcarchive"):
+    symbolsFilePath = "{0}/dSYMs/{1}.app.dSYM/Contents/Resources/DWARF/{1}".format(symbolsFilePath, binaryName)
+    
+print("Binary name: {0}".format(binaryName))
+
+if not os.path.exists(symbolsFilePath):
+    print("Symbols file path '{0}' does not exist".format(symbolsFilePath))
+    exit(0)
+
+print("UUID of specified symbols file is {0}".format(getDsymUuid(symbolsFilePath)))
 
 with open(jsonPath, 'r') as jsonFile:
     jsonData = json.loads(jsonFile.read())
