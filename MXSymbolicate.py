@@ -122,18 +122,33 @@ def printFrame(root, level=-1):
         # If the binary name is the one we specified the symbols path for, use that
         dsymPath = symbolsFilePath
         architecture = "arm64"
+    elif originBinaryName.startswith("libswift"):
+        dsymPath = systemLibPath + "usr/lib/swift/" + originBinaryName
     elif originBinaryName.startswith("lib") and originBinaryName.endswith(".dylib"):
         # A binary name like libsystem_kernel.dylib is going to be in <device folder>/usr/lib/system
         dsymPath = systemLibPath + "usr/lib/system/" + originBinaryName
         if not os.path.exists(dsymPath):
             dsymPath = systemLibPath + "usr/lib/" + originBinaryName
+
+        if originBinaryName in ["libFontParser.dylib", "libGSFont.dylib", "libGSFontCache.dylib", "libType1Scaler.dylib", "libhvf.dylib"]:
+            dsymPath = systemLibPath + "System/Library/PrivateFrameworks/FontServices.framework/" + originBinaryName
     elif originBinaryName == "dyld":
         dsymPath = systemLibPath + "usr/lib/dyld"
     else:
         # Other binary names like Foundation or UIKitCore are going to be either in <device folder>/System/Library/Frameworks or <device folder>/System/Library/PrivateFrameworks
         dsymPath = systemLibPath + "System/Library/Frameworks/{0}.framework/{0}".format(originBinaryName)
+
+        if not os.path.exists(dsymPath):
+            dsymPath = systemLibPath + f"System/Library/Frameworks/{originBinaryName}.framework/Versions/A/{originBinaryName}"
+
         if not os.path.exists(dsymPath):
             dsymPath = systemLibPath + "System/Library/PrivateFrameworks/{0}.framework/{0}".format(originBinaryName)
+        
+        if not os.path.exists(dsymPath):
+            dsymPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.axbundle/{originBinaryName}"
+
+        if not os.path.exists(dsymPath):
+            dsymPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.bundle/{originBinaryName}"
 
     processedLine = False
     errorReason = ""

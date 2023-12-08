@@ -52,9 +52,19 @@ When called in any of these ways, the script will print some metadata from the r
 
 Via trial and error, I've figured out that in this `iOS DeviceSupport/<device>/Symbols` folder:
 
+ - Some font-related libraries are in `System/Library/PrivateFrameworks/FontServices.framework`
  - Binaries with names like `libsystem_kernel.dylib` and `libsystem_pthread.dylib` (beginning with `lib` and ending with `.dylib`) are in `usr/lib/system/<name>` or `usr/lib/<name`
+ - Binaries beginning with `libswift` are in `user/lib/swift`
  - `dyld` is at `usr/lib/dyld`
- - Other names like `UIKitCore` and `Foundation` are either in `System/Library/Frameworks/<name>.framework` or `System/PrivateFrameworks/<name>.framework`.
+ - Other names like `UIKitCore` and `Foundation` are in one of:
+   - `System/Library/Frameworks/<name>.framework/<name>`
+   - `System/Library/Frameworks/<name>.framework/Versions/A/<name>`
+   - `System/Library/PrivateFrameworks/<name>.framework/<name>`
+   - `System/Library/<name>.axbundle/<name>`
+   - `System/Library/<name>.bundle/<name>`
+
+Binaries that I haven't found anywhere:
+ - `GAXClient`
 
 The script finds a device folder there that matches the iOS version specified in the report, and then follows those rules to find symbol files for system frameworks it finds in call stack frames.
 
@@ -75,5 +85,6 @@ There's a surprising lack of documentation on how exactly to use the information
 There are various things I'd still love to know:
 
  - What's the purpose of the `address` field in the call stack frame objects? The forum post I linked above doesn't seem to use it, and I've got symbolication working without it. But [this thread](https://github.com/ChimeHQ/Meter/issues/3) seems to indicate that sometimes it's needed.
- - What are the complete rules about where to find symbol files for system frameworks? Do any frameworks vary more granularly than across iOS versions? UIKit symbols don't seem to match UUIDs within the same iOS version, for example.
+ - What are the complete rules about where to find symbol files for system frameworks?
+   - Do any frameworks vary more granularly than across iOS versions? UIKit symbols don't seem to match UUIDs within the same iOS version, for example.
  - App launch diagnostic reports have multiple call stack paths with sample counts, so they should be formatted like a spindump, but the `callStackPerThread` property is `true`. Is this wrong? Or am I wrong to think that `callStackPerThread` being `false` is what should trigger spindump-like formatting?
