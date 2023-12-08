@@ -48,7 +48,7 @@ When called in any of these ways, the script will print some metadata from the r
 
 ## Symbolicating frames in system libraries
 
-`MXSymbolicate` uses the dSYM provided to it via `--symbols-path` to symbolicate call stack frames in the source app. But it needs separate dSYM files for system libraries like `UIKit` and `libsystem_kernel.dylib`. As it turns out, these are available for any iOS version that's been on a device you've connected to Xcode in `~/Library/Developer/Xcode/iOS DeviceSupport`. Folders there appear to be named according to device and OS version: `<device type> <os version> <os build number>`, ex. `iPad13,16 17.0 (21A329)`.
+`MXSymbolicate` uses the dSYM provided to it via `--symbols-path` to symbolicate call stack frames in the source app. But it needs separate dSYM files for system libraries like `UIKit` and `libsystem_kernel.dylib`. As it turns out, these are available for any iOS version that's been on a device you've connected to Xcode in `~/Library/Developer/Xcode/iOS DeviceSupport`.
 
 Via trial and error, I've figured out that in this `iOS DeviceSupport/<device>/Symbols` folder:
 
@@ -66,7 +66,7 @@ Via trial and error, I've figured out that in this `iOS DeviceSupport/<device>/S
 Binaries that I haven't found anywhere:
  - `GAXClient`
 
-The script finds a device folder there that matches the iOS version specified in the report, and then follows those rules to find symbol files for system frameworks it finds in call stack frames.
+The script walks through those folders and looks for symbol files for system frameworks using the above rules that match the UUID in the call stack frame.
 
 I imagine there are some frameworks that don't follow those rules, or situations in which those rules don't work - I'll figure that out if and when I run into them in a crash report.
 

@@ -95,9 +95,65 @@ def getDsymUuid(path):
 
     return binaryUuids[path]
 
+symbolFiles = {}
+def getSymbolFile(originBinaryName, uuid):
+    startPath = "~/Library/Developer/Xcode/iOS DeviceSupport/"
+    startPath = os.path.expanduser(startPath)
+    global symbolFiles
+
+    key = f"{originBinaryName}.{uuid}"
+    if not key in symbolFiles:
+        # Walk through all the device folders and look for a symbol file for this binary name that matches this UUID
+
+        foundPath = ""
+        for deviceFolder in os.listdir(startPath):
+            systemLibPath = startPath + deviceFolder + "/Symbols/"
+            if not os.path.exists(systemLibPath):
+                continue
+
+            if originBinaryName == binaryName:
+                # If the binary name is the one we specified the symbols path for, use that
+                foundPath = symbolsFilePath
+            elif originBinaryName.startswith("libswift"):
+                # Swift-related symbol files are in their own folder
+                foundPath = systemLibPath + "usr/lib/swift/" + originBinaryName
+            elif originBinaryName.startswith("lib") and originBinaryName.endswith(".dylib"):
+                # A binary name like libsystem_kernel.dylib is going to be in <device folder>/usr/lib/system
+                foundPath = systemLibPath + "usr/lib/system/" + originBinaryName
+                if not os.path.exists(foundPath):
+                    foundPath = systemLibPath + "usr/lib/" + originBinaryName
+
+                if originBinaryName in ["libFontParser.dylib", "libGSFont.dylib", "libGSFontCache.dylib", "libType1Scaler.dylib", "libhvf.dylib"]:
+                    foundPath = systemLibPath + "System/Library/PrivateFrameworks/FontServices.framework/" + originBinaryName
+            elif originBinaryName == "dyld":
+                foundPath = systemLibPath + "usr/lib/dyld"
+            else:
+                # Other binary names like Foundation or UIKitCore are going to be either in <device folder>/System/Library/Frameworks or <device folder>/System/Library/PrivateFrameworks
+                foundPath = systemLibPath + "System/Library/Frameworks/{0}.framework/{0}".format(originBinaryName)
+
+                if not os.path.exists(foundPath):
+                    foundPath = systemLibPath + f"System/Library/Frameworks/{originBinaryName}.framework/Versions/A/{originBinaryName}"
+
+                if not os.path.exists(foundPath):
+                    foundPath = systemLibPath + "System/Library/PrivateFrameworks/{0}.framework/{0}".format(originBinaryName)
+                
+                if not os.path.exists(foundPath):
+                    foundPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.axbundle/{originBinaryName}"
+
+                if not os.path.exists(foundPath):
+                    foundPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.bundle/{originBinaryName}"
+
+            if len(foundPath) > 0 and os.path.exists(foundPath) and getDsymUuid(foundPath) == uuid:
+                symbolFiles[key] = foundPath
+                break
+
+        if key not in symbolFiles:
+            symbolFiles[key] = ""
+
+    return symbolFiles[key]
+
 print("UUID of specified dSYM is {0}".format(getDsymUuid(symbolsFilePath)))
 
-systemLibPath = ""
 forceHierarchical = False
 
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
@@ -116,58 +172,22 @@ def printFrame(root, level=-1):
         print(f"{indentPrefix}<missing information in frame>")
         return
 
-    dsymPath = ""
-    architecture = "arm64e"
-    if originBinaryName == binaryName:
-        # If the binary name is the one we specified the symbols path for, use that
-        dsymPath = symbolsFilePath
-        architecture = "arm64"
-    elif originBinaryName.startswith("libswift"):
-        dsymPath = systemLibPath + "usr/lib/swift/" + originBinaryName
-    elif originBinaryName.startswith("lib") and originBinaryName.endswith(".dylib"):
-        # A binary name like libsystem_kernel.dylib is going to be in <device folder>/usr/lib/system
-        dsymPath = systemLibPath + "usr/lib/system/" + originBinaryName
-        if not os.path.exists(dsymPath):
-            dsymPath = systemLibPath + "usr/lib/" + originBinaryName
-
-        if originBinaryName in ["libFontParser.dylib", "libGSFont.dylib", "libGSFontCache.dylib", "libType1Scaler.dylib", "libhvf.dylib"]:
-            dsymPath = systemLibPath + "System/Library/PrivateFrameworks/FontServices.framework/" + originBinaryName
-    elif originBinaryName == "dyld":
-        dsymPath = systemLibPath + "usr/lib/dyld"
-    else:
-        # Other binary names like Foundation or UIKitCore are going to be either in <device folder>/System/Library/Frameworks or <device folder>/System/Library/PrivateFrameworks
-        dsymPath = systemLibPath + "System/Library/Frameworks/{0}.framework/{0}".format(originBinaryName)
-
-        if not os.path.exists(dsymPath):
-            dsymPath = systemLibPath + f"System/Library/Frameworks/{originBinaryName}.framework/Versions/A/{originBinaryName}"
-
-        if not os.path.exists(dsymPath):
-            dsymPath = systemLibPath + "System/Library/PrivateFrameworks/{0}.framework/{0}".format(originBinaryName)
-        
-        if not os.path.exists(dsymPath):
-            dsymPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.axbundle/{originBinaryName}"
-
-        if not os.path.exists(dsymPath):
-            dsymPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.bundle/{originBinaryName}"
-
+    dsymPath = getSymbolFile(originBinaryName, originUuid)
+    
     processedLine = False
     errorReason = ""
     
-    if os.path.exists(dsymPath):
-        dsymUuid = getDsymUuid(dsymPath)
-        if originUuid == dsymUuid:
-            # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-            atosResult = subprocess.run(["atos", "-i", "-arch", architecture, "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
-            atosResult = atosResult.strip().replace("\n", " <newline> ")
-            if level >= 0:
-                # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
-                print("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
-            else:
-                # Crash diagnostic or otherwise
-                print(atosResult)
-            processedLine = True
+    if len(dsymPath) > 0:
+        # This is based on this forum post: https://developer.apple.com/forums/thread/681967
+        atosResult = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
+        atosResult = atosResult.strip().replace("\n", " <newline> ")
+        if level >= 0:
+            # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
+            print("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
         else:
-            errorReason = "UUID mismatch"
+            # Crash diagnostic or otherwise
+            print(atosResult)
+        processedLine = True
     else:
         errorReason = "symbols not found"
 
@@ -301,22 +321,6 @@ with open(jsonPath, 'r') as jsonFile:
     isiPad = deviceType.startswith("iPad")
     isiPhone = deviceType.startswith("iPhone")
     foundDeviceTypeMatch = False
-
-    startPath = "~/Library/Developer/Xcode/iOS DeviceSupport/"
-    startPath = os.path.expanduser(startPath)
-    for deviceFolder in os.listdir(startPath):
-        if osVersion in deviceFolder:
-            if (isiPad and "iPad" in deviceFolder) or (isiPhone and "iPhone" in deviceFolder):
-                systemLibPath = startPath + deviceFolder
-                foundDeviceTypeMatch = True
-            elif foundDeviceTypeMatch == False:
-                systemLibPath = startPath + deviceFolder
-
-    if len(systemLibPath) == 0:
-        print(f"Warning: failed to find system library path for {osVersion} {deviceType}")
-    else:
-        systemLibPath = systemLibPath + "/Symbols/"
-        print(f"Found system library path for {osVersion} {deviceType}: {systemLibPath}")
         
     print("")
 
