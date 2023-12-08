@@ -53,8 +53,8 @@ Via trial and error, I've figured out that in this `iOS DeviceSupport/<device>/S
    - `System/Library/Frameworks/<name>.framework/<name>`
    - `System/Library/Frameworks/<name>.framework/Versions/A/<name>`
    - `System/Library/PrivateFrameworks/<name>.framework/<name>`
-   - `System/Library/<name>.axbundle/<name>`
-   - `System/Library/<name>.bundle/<name>`
+   - `System/Library/AccessibilityBundles/<name>.axbundle/<name>`
+   - `System/Library/AccessibilityBundles/<name>.bundle/<name>`
 
 Binaries that I haven't found anywhere:
  - `GAXClient`
