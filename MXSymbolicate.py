@@ -145,7 +145,7 @@ def printFrame(root, level=-1):
     
     if len(dsymPath) > 0:
         # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-        atosResult = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "-l", "0x1", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
+        atosResult = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "--offset", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
         atosResult = atosResult.strip().replace("\n", " <newline> ")
         if level >= 0:
             # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
