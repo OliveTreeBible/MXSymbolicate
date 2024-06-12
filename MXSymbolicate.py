@@ -122,6 +122,12 @@ def getSymbolFile(originBinaryName, uuid):
 
     return symbolFiles[key]
 
+result = ""
+def printResultLine(ln):
+    global result
+    result += ln + "\n"
+    print(ln)
+
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
 def printFrame(root, level=-1):
     offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
@@ -135,7 +141,7 @@ def printFrame(root, level=-1):
     indentPrefix = spacer * level if level >= 0 else ""
 
     if not offset or not originBinaryName or not originUuid:
-        print(f"{indentPrefix}<missing information in frame>")
+        printResultLine(f"{indentPrefix}<missing information in frame>")
         return
 
     dsymPath = getSymbolFile(originBinaryName, originUuid)
@@ -149,16 +155,16 @@ def printFrame(root, level=-1):
         atosResult = atosResult.strip().replace("\n", " <newline> ")
         if level >= 0:
             # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
-            print("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
+            printResultLine("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
         else:
             # Crash diagnostic or otherwise
-            print(atosResult)
+            printResultLine(atosResult)
         processedLine = True
     else:
         errorReason = "symbols not found"
 
     if processedLine == False:
-        print(f"{indentPrefix}<WARNING, {errorReason}> {originBinaryName} ({offset})")
+        printResultLine(f"{indentPrefix}<WARNING, {errorReason}> {originBinaryName} ({offset})")
 
     if "subFrames" in root:
         frames = root["subFrames"]
@@ -187,9 +193,9 @@ def printCallstack(callstackTree):
         crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
 
         for root in rootFrames:
-            print('{0}Call stack {1}:'.format("Attributed: " if crashed else "", index))
+            printResultLine('{0}Call stack {1}:'.format("Attributed: " if crashed else "", index))
             printFrame(root, level=-1 if simpleCallStack else 0)
-            print("")
+            printResultLine("")
             index += 1
 
 def processCrashDiagnostic(diag):
@@ -202,21 +208,21 @@ def processCrashDiagnostic(diag):
     excCode = meta["exceptionCode"]
     signal = meta["signal"]
 
-    print("Symbolicating crash report from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    printResultLine("Symbolicating crash report from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
 
     exceptionTypeName = "unknown"
     if excType in exceptionTypes:
         exceptionTypeName = exceptionTypes[excType]
 
-    print("Exception type: {0}, {1}".format(excType, exceptionTypeName))
-    print("Exception code: {0}".format(excCode))
+    printResultLine("Exception type: {0}, {1}".format(excType, exceptionTypeName))
+    printResultLine("Exception code: {0}".format(excCode))
 
     signalName = "unknown"
     if signal in signalTypes:
         signalName = signalTypes[signal]
 
-    print("Signal: {0}, {1}".format(signal, signalName))
-    print("")
+    printResultLine("Signal: {0}, {1}".format(signal, signalName))
+    printResultLine("")
 
     callstackTree = diag["callStackTree"]
     printCallstack(callstackTree)
@@ -229,8 +235,9 @@ def processDiskDiagnostic(diag):
     osVersion = meta["osVersion"]
     writes = meta["writesCaused"]
 
-    print("Symbolicating disk write exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
-    print("Writes caused: {0}".format(writes))
+    printResultLine("Symbolicating disk write exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    printResultLine("Writes caused: {0}".format(writes))
+    printResultLine("")
 
     callStack = diag["callStackTree"]
     printCallstack(callStack)
@@ -244,8 +251,9 @@ def processCpuDiagnostic(diag):
     totalTime = meta["totalCPUTime"]
     sampledTime = meta["totalSampledTime"]
 
-    print("Symbolicating CPU exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
-    print("Total time: {0} of {1}".format(totalTime, sampledTime))
+    printResultLine("Symbolicating CPU exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    printResultLine("Total time: {0} of {1}".format(totalTime, sampledTime))
+    printResultLine("")
 
     callStack = diag["callStackTree"]
     printCallstack(callStack)
@@ -262,8 +270,9 @@ def processAppLaunchDiagnostic(diag):
     global forceHierarchical
     forceHierarchical = True
 
-    print("Symbolicating app launch diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
-    print(f"Launch duration: {duration}")
+    printResultLine("Symbolicating app launch diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    printResultLine(f"Launch duration: {duration}")
+    printResultLine("")
 
     callStack = diag["callStackTree"]
     printCallstack(callStack)
@@ -279,11 +288,13 @@ parser.add_argument("--binary-name", help="Binary name. Pulled from the file nam
 args = parser.parse_args()
 
 if not args.report_path or not args.symbols_path:
-    print("Report path and symbols path are required.")
+    printResultLine("Report path and symbols path are required.")
     exit(1)
 
 jsonPath = args.report_path
 symbolsFilePath = args.symbols_path
+
+printResultLine(f"Processing input file: {jsonPath}")
 
 binaryName = ""
 if args.binary_name:
@@ -295,13 +306,13 @@ else:
 if symbolsFilePath.endswith(".xcarchive"):
     symbolsFilePath = "{0}/dSYMs/{1}.app.dSYM/Contents/Resources/DWARF/{1}".format(symbolsFilePath, binaryName)
     
-print("Binary name: {0}".format(binaryName))
+printResultLine("Binary name: {0}".format(binaryName))
 
 if not os.path.exists(symbolsFilePath):
-    print("Symbols file path '{0}' does not exist".format(symbolsFilePath))
+    printResultLine("Symbols file path '{0}' does not exist".format(symbolsFilePath))
     exit(0)
 
-print("UUID of specified symbols file is {0}".format(getDsymUuid(symbolsFilePath)))
+printResultLine("UUID of specified symbols file is {0}".format(getDsymUuid(symbolsFilePath)))
 
 with open(jsonPath, 'r') as jsonFile:
     jsonData = json.loads(jsonFile.read())
@@ -310,21 +321,23 @@ with open(jsonPath, 'r') as jsonFile:
     timestamp = jsonData.get("timestamp")
     osVersion = jsonData.get("os_version")
     deviceType = jsonData.get("device_model")
+    appVersion = jsonData.get("app_version")
 
-    if custId and timestamp and osVersion and deviceType:
+    if custId and timestamp and osVersion and deviceType and appVersion:
         reportDate = datetime.datetime.fromtimestamp(timestamp, datetime.timezone.utc).isoformat()
 
-        print("Customer ID: {0}".format(custId))
-        print("Date of report on device: {0}".format(reportDate))
-        print("Device: {0}, {1}".format(deviceType, osVersion))
-        print("")
+        printResultLine("Customer ID: {0}".format(custId))
+        printResultLine("Date of report on device: {0}".format(reportDate))
+        printResultLine("Device: {0}, {1}".format(deviceType, osVersion))
+        printResultLine(f"App version: {appVersion}")
+        printResultLine("")
 
     payload = jsonData["payload"]
 
     if "crashDiagnostics" in payload:
         crashDiags = payload["crashDiagnostics"]
         if len(crashDiags) != 1:
-            print("More than one crashDiagnostics entry!")
+            printResultLine("More than one crashDiagnostics entry!")
         for diag in crashDiags:
             processCrashDiagnostic(diag)
 
@@ -343,4 +356,9 @@ with open(jsonPath, 'r') as jsonFile:
         for diag in launchDiags:
             processAppLaunchDiagnostic(diag)
     
-
+    inputFileName = jsonPath.split('/')[-1]
+    outputFileName = inputFileName.replace(".json", "_processed.txt")
+    outputPath = jsonPath.replace(inputFileName, outputFileName)
+    print(f"Writing output to {outputPath}")
+    with open(outputPath, 'w') as outputFile:
+        outputFile.write(result)
