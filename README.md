@@ -37,7 +37,7 @@ The `--symbols-path` can also be a path to an `xcarchive` file, in which case th
 
 In that example, the binary name will be taken as `MyApp`, and it'll look for a dSYM at `/path/to/MyApp.xcarchive/dSYMs/MyApp.app.dSYM/Contents/Resources/DWARF/MyApp`.
 
-When called in any of these ways, the script will print some metadata from the report and the symbolicated call stacks.
+When called in any of these ways, the script will print some metadata from the report and the symbolicated call stacks. Call stacks in crash diagnostics will be printed linearly, like you'd see in a normal crash report. If the `callStackPerThread` property is `false`, though, the call stack is showing the heaviest traces, and it's not a simple linear stack, so the script prints it like a `spindump`. Note that app launch diagnostics currently have `callStackPerThread` set false even though they need to be printed `spindump`-style; this is a bug, as per some awesome engineers I was able to talk to in WWDC 2024 labs (FB13889418).
 
 ## Symbolicating frames in system libraries
 
@@ -65,20 +65,25 @@ I imagine there are some frameworks that don't follow those rules, or situations
 
 ## Useful Resources
 
-There's a surprising lack of documentation on how exactly to use the information in the diagnostic reports. But here's what I used to figure out how to get this far:
+When I wrote this script, there was a surprising lack of documentation on how exactly to use the information in the diagnostic reports. But here's what I used to figure out how to get this far:
 
+ - Documentation on the [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxcallstacktree/jsonrepresentation()) property of `MXCallStackTree` explaining all the properties
  - Introduction of MetricKit at WWDC 2019: [Improving Battery Life and Performance](https://developer.apple.com/videos/play/wwdc2019/417/)
  - WWDC 2020: [What's New in MetricKit](https://developer.apple.com/videos/play/wwdc2020/10081/)
  - [Apple documentation on symbolicating](https://developer.apple.com/documentation/xcode/adding-identifiable-symbol-names-to-a-crash-report)
  - [Apple Developer Forum thread](https://developer.apple.com/forums/thread/681967) on how to plug the values in the call stack tree into `atos`
  - [Where to find system framework dSYM files](https://www.finik.net/2017/03/20/iOS-Crash-Symbolication-for-dummies-Part-2/)
 
+## Useful tidbits
+
+ - Sometimes the UUID of a system framework can vary more granularly than the iOS version. For example, you might get two crash reports from iOS 17.5 that reference UIKit with different UUIDs. This is because of Rapid Security Updates.
+ - MetricKit reports come from *all* devices in the field, not just devices where the user has enabled the privacy setting to share diagnostic data with app developers. The onus is on the app developer to share that they collect this data - it's not sent to Apple.
+ - As of iOS 18 / macOS Sequoia, macOS Catalyst apps get diagnostic reports but not metric reports
+
 ## Remaining Questions
 
 There are various things I'd still love to know:
 
  - What are the complete rules about where to find symbol files for system frameworks?
-   - Do any frameworks vary more granularly than across iOS versions? UIKit symbols don't seem to match UUIDs within the same iOS version, for example.
- - App launch diagnostic reports have multiple call stack paths with sample counts, so they should be formatted like a spindump, but the `callStackPerThread` property is `true`. Is this wrong? Or am I wrong to think that `callStackPerThread` being `false` is what should trigger spindump-like formatting?
  - I've seen at least one report that has call stack frames from the same binary with different UUIDs. Specifically SwiftUI. What's going on there?
  
