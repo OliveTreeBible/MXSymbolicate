@@ -217,6 +217,9 @@ def processCrashDiagnostic(diag):
     printResultLine("Exception type: {0}, {1}".format(excType, exceptionTypeName))
     printResultLine("Exception code: {0}".format(excCode))
 
+    if "terminationReason" in meta:
+        print(f"Termination Reason: {meta["terminationReason"]}")
+
     signalName = "unknown"
     if signal in signalTypes:
         signalName = signalTypes[signal]
