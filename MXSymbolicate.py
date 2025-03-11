@@ -161,7 +161,7 @@ def printFrame(root, level=-1):
             printResultLine(atosResult)
         processedLine = True
     else:
-        errorReason = "symbols not found"
+        errorReason = f"symbols file not found for '{originBinaryName}'"
 
     if processedLine == False:
         printResultLine(f"{indentPrefix}<WARNING, {errorReason}> {originBinaryName} ({offset})")
