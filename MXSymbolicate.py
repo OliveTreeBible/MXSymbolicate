@@ -335,7 +335,7 @@ with open(jsonPath, 'r') as jsonFile:
         printResultLine(f"App version: {appVersion}")
         printResultLine("")
 
-    payload = jsonData["payload"]
+    payload = jsonData.get("payload") or jsonData
 
     if "crashDiagnostics" in payload:
         crashDiags = payload["crashDiagnostics"]
