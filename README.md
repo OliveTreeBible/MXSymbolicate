@@ -8,6 +8,7 @@ It's specifically written to deal with the diagnostic reports as saved by the [O
 {
     "customer_id": "...",
     "timestamp": "...",
+    "os_version": "...",
     "device_model": "...",
     "app_version": "...",
     "payload": {
