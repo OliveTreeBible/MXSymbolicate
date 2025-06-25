@@ -2,17 +2,21 @@
 
 `MXSymbolicate.py` is an example python script for symbolicating call stacks in json-formatted diagnostic reports produced by [MetricKit](https://developer.apple.com/documentation/metrickit).
 
-It's specifically written to deal with the diagnostic reports as saved by the [Olive Tree Bible App](https://apps.apple.com/us/app/bible-app-read-study-daily/id332615624), in which iOS report json is embedded in a root object with some other properties for convenience. It'll work without those root properties, though, so you can feed it a json file with the diagnostic json in the root object like this:
+It's specifically written to deal with the diagnostic reports as saved by the [Olive Tree Bible App](https://apps.apple.com/us/app/bible-app-read-study-daily/id332615624), in which iOS report json is embedded in a `payload` field in the root object with some other properties, like so:
 
 ```
 {
+    "customer_id": "...",
+    "timestamp": "...",
+    "device_model": "...",
+    "app_version": "...",
     "payload": {
         ...MetricKit payload here...
     }
 }
 ```
 
-To be clear, the value of the `payload` property there is the [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload`.
+However, it is also compatible with "raw"  [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload` for crash reports from other apps.
 
 Caveat emptor: I am not an experienced Python developer, so I'm sure there are lots of things about this script that could be done differently. :-)
 
