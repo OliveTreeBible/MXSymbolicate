@@ -17,7 +17,7 @@ It's specifically written to deal with the diagnostic reports as saved by the [O
 }
 ```
 
-However, it is also compatible with "raw"  [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload` for crash reports from other apps.
+However, it is also compatible with the "raw"  [`jsonRepresentation`](https://developer.apple.com/documentation/metrickit/mxdiagnosticpayload/3552307-jsonrepresentation) property of `MXDiagnosticPayload` for crash reports from other apps.
 
 Caveat emptor: I am not an experienced Python developer, so I'm sure there are lots of things about this script that could be done differently. :-)
 
