@@ -361,6 +361,10 @@ with open(jsonPath, 'r') as jsonFile:
         for diag in crashDiags:
             processCrashDiagnostic(diag)
 
+    if "crashDiagnostic" in payload:
+        diag = payload["crashDiagnostic"]
+        processCrashDiagnostic(diag)
+
     if "diskWriteExceptionDiagnostics" in payload:
         diskDiags = payload["diskWriteExceptionDiagnostics"]
         for diag in diskDiags:
