@@ -129,10 +129,14 @@ def printResultLine(ln):
     print(ln)
 
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
-def printFrame(root, level=-1):
+def printFrame(root, level=-1, binaryNames={}):
     offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
-    originBinaryName = root["binaryName"] if "binaryName" in root else None
     originUuid = root["binaryUUID"] if "binaryUUID" in root else None
+
+    originBinaryName = root["binaryName"] if "binaryName" in root else None
+    if originBinaryName is None and originUuid is not None and originUuid in binaryNames:
+        originBinaryName = binaryNames[originUuid]
+    
     sampleCount = 0
     if "sampleCount" in root:
         sampleCount = root["sampleCount"]
@@ -171,7 +175,7 @@ def printFrame(root, level=-1):
         if level >= 0:
             level = level + 1
         for sub in frames:
-            printFrame(sub, level=level)
+            printFrame(sub, level=level, binaryNames=binaryNames)
 
 
 forceHierarchical = False
@@ -186,15 +190,30 @@ def printCallstack(callstackTree):
     if forceHierarchical:
         simpleCallStack = False
 
-    for stack in callstackTree["callStacks"]:
-        rootFrames = stack["callStackRootFrames"]
+    threadsKey = "callStacks"
+    if "callStackThreads" in callstackTree:
+        threadsKey = "callStackThreads"
+
+    binaryNameLookup = {}
+    if "binaryInfo" in callstackTree:
+        for bin in callstackTree["binaryInfo"]:
+            uuid = bin["uuid"]
+            name = bin["name"]
+            binaryNameLookup[uuid] = name
+
+    for stack in callstackTree[threadsKey]:
+        rootKey = "callStackRootFrames"
+        if "rootFrames" in stack:
+            rootKey = "rootFrames"
+            
+        rootFrames = stack[rootKey]
 
         # The threadAttributed property indicates whether this is the thread that is "attributed" (crashed in a crash diagnostic)
         crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
 
         for root in rootFrames:
             printResultLine('{0}Call stack {1}:'.format("Attributed: " if crashed else "", index))
-            printFrame(root, level=-1 if simpleCallStack else 0)
+            printFrame(root, level=-1 if simpleCallStack else 0, binaryNames=binaryNameLookup)
             printResultLine("")
             index += 1
 
