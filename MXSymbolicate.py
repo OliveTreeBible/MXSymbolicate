@@ -199,14 +199,29 @@ def printCallstack(callstackTree):
             index += 1
 
 def processCrashDiagnostic(diag):
-    meta = diag["diagnosticMetaData"]
-    bundleId = meta["bundleIdentifier"]
-    excType = meta["exceptionType"]
-    appVersion = meta["appVersion"]
-    appBuildVersion = meta["appBuildVersion"]
-    osVersion = meta["osVersion"]
-    excCode = meta["exceptionCode"]
-    signal = meta["signal"]
+    bundleId = ""
+    excType = ""
+    appVersion = ""
+    appBuildVersion = ""
+    excCode = ""
+    signal = ""
+
+    if "diagnosticMetadata" in diag:
+        meta = diag["diagnosticMetaData"]
+        bundleId = meta["bundleIdentifier"]
+        excType = meta["exceptionType"]
+        appVersion = meta["appVersion"]
+        appBuildVersion = meta["appBuildVersion"]
+        excCode = meta["exceptionCode"]
+        signal = meta["signal"]
+    elif "environment" in diag:
+        meta = diag["environment"]
+        bundleId = meta["bundleIdentifier"]
+        appVersion = meta["applicationVersion"]
+        appBuildVersion = meta["applicationBuildVersion"]
+        excType = diag["exceptionType"]
+        excCode = diag["exceptionCode"]
+        signal = diag["signal"]
 
     printResultLine("Symbolicating crash report from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
 
@@ -219,6 +234,8 @@ def processCrashDiagnostic(diag):
 
     if "terminationReason" in meta:
         print(f"Termination Reason: {meta["terminationReason"]}")
+    elif "terminationReason" in diag:
+        print(f"Termination Reason: {diag["terminationReason"]}")
 
     signalName = "unknown"
     if signal in signalTypes:
