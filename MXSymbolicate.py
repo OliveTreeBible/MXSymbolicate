@@ -129,10 +129,14 @@ def printResultLine(ln):
     print(ln)
 
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
-def printFrame(root, level=-1):
+def printFrame(root, level=-1, binaryNames={}):
     offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
-    originBinaryName = root["binaryName"] if "binaryName" in root else None
     originUuid = root["binaryUUID"] if "binaryUUID" in root else None
+
+    originBinaryName = root["binaryName"] if "binaryName" in root else None
+    if originBinaryName is None and originUuid is not None and originUuid in binaryNames:
+        originBinaryName = binaryNames[originUuid]
+    
     sampleCount = 0
     if "sampleCount" in root:
         sampleCount = root["sampleCount"]
@@ -171,7 +175,7 @@ def printFrame(root, level=-1):
         if level >= 0:
             level = level + 1
         for sub in frames:
-            printFrame(sub, level=level)
+            printFrame(sub, level=level, binaryNames=binaryNames)
 
 
 forceHierarchical = False
@@ -186,27 +190,57 @@ def printCallstack(callstackTree):
     if forceHierarchical:
         simpleCallStack = False
 
-    for stack in callstackTree["callStacks"]:
-        rootFrames = stack["callStackRootFrames"]
+    threadsKey = "callStacks"
+    if "callStackThreads" in callstackTree:
+        threadsKey = "callStackThreads"
+
+    binaryNameLookup = {}
+    if "binaryInfo" in callstackTree:
+        for bin in callstackTree["binaryInfo"]:
+            uuid = bin["uuid"]
+            name = bin["name"]
+            binaryNameLookup[uuid] = name
+
+    for stack in callstackTree[threadsKey]:
+        rootKey = "callStackRootFrames"
+        if "rootFrames" in stack:
+            rootKey = "rootFrames"
+            
+        rootFrames = stack[rootKey]
 
         # The threadAttributed property indicates whether this is the thread that is "attributed" (crashed in a crash diagnostic)
         crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
 
         for root in rootFrames:
             printResultLine('{0}Call stack {1}:'.format("Attributed: " if crashed else "", index))
-            printFrame(root, level=-1 if simpleCallStack else 0)
+            printFrame(root, level=-1 if simpleCallStack else 0, binaryNames=binaryNameLookup)
             printResultLine("")
             index += 1
 
 def processCrashDiagnostic(diag):
-    meta = diag["diagnosticMetaData"]
-    bundleId = meta["bundleIdentifier"]
-    excType = meta["exceptionType"]
-    appVersion = meta["appVersion"]
-    appBuildVersion = meta["appBuildVersion"]
-    osVersion = meta["osVersion"]
-    excCode = meta["exceptionCode"]
-    signal = meta["signal"]
+    bundleId = ""
+    excType = ""
+    appVersion = ""
+    appBuildVersion = ""
+    excCode = ""
+    signal = ""
+
+    if "diagnosticMetadata" in diag:
+        meta = diag["diagnosticMetaData"]
+        bundleId = meta["bundleIdentifier"]
+        excType = meta["exceptionType"]
+        appVersion = meta["appVersion"]
+        appBuildVersion = meta["appBuildVersion"]
+        excCode = meta["exceptionCode"]
+        signal = meta["signal"]
+    elif "environment" in diag:
+        meta = diag["environment"]
+        bundleId = meta["bundleIdentifier"]
+        appVersion = meta["applicationVersion"]
+        appBuildVersion = meta["applicationBuildVersion"]
+        excType = diag["exceptionType"]
+        excCode = diag["exceptionCode"]
+        signal = diag["signal"]
 
     printResultLine("Symbolicating crash report from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
 
@@ -219,6 +253,8 @@ def processCrashDiagnostic(diag):
 
     if "terminationReason" in meta:
         print(f"Termination Reason: {meta["terminationReason"]}")
+    elif "terminationReason" in diag:
+        print(f"Termination Reason: {diag["terminationReason"]}")
 
     signalName = "unknown"
     if signal in signalTypes:
@@ -343,6 +379,10 @@ with open(jsonPath, 'r') as jsonFile:
             printResultLine("More than one crashDiagnostics entry!")
         for diag in crashDiags:
             processCrashDiagnostic(diag)
+
+    if "crashDiagnostic" in payload:
+        diag = payload["crashDiagnostic"]
+        processCrashDiagnostic(diag)
 
     if "diskWriteExceptionDiagnostics" in payload:
         diskDiags = payload["diskWriteExceptionDiagnostics"]
