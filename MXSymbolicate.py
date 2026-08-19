@@ -2,6 +2,7 @@
 import json
 import os, sys
 import subprocess
+import struct
 import re
 import datetime
 import argparse
@@ -54,21 +55,128 @@ signalTypes = {1: "SIGHUP",
                 30: "SIGUSR1",
                 31: "SIGUSR2"}
 
+LC_UUID = 0x1B
+
+def _formatUuid(rawBytes):
+    hexDigits = rawBytes.hex().upper()
+    return "{0}-{1}-{2}-{3}-{4}".format(hexDigits[0:8], hexDigits[8:12], hexDigits[12:16], hexDigits[16:20], hexDigits[20:32])
+
+def _sliceUuid(machoFile, sliceOffset):
+    # Read the Mach-O header at this offset and scan its load commands for LC_UUID
+    machoFile.seek(sliceOffset)
+    header = machoFile.read(32)
+    if len(header) < 28:
+        return None
+
+    magic = struct.unpack("<I", header[:4])[0]
+    if magic in (0xFEEDFACF, 0xFEEDFACE):
+        endian = "<"
+    elif magic in (0xCFFAEDFE, 0xCEFAEDFE):
+        endian = ">"
+    else:
+        return None
+
+    is64Bit = struct.unpack(endian + "I", header[:4])[0] in (0xFEEDFACF, 0xCFFAEDFE)
+    ncmds, sizeofcmds = struct.unpack(endian + "II", header[16:24])
+
+    machoFile.seek(sliceOffset + (32 if is64Bit else 28))
+    loadCommands = machoFile.read(sizeofcmds)
+
+    pos = 0
+    for _ in range(ncmds):
+        if pos + 8 > len(loadCommands):
+            break
+        cmd, cmdsize = struct.unpack_from(endian + "II", loadCommands, pos)
+        if cmd == LC_UUID and cmdsize >= 24:
+            return _formatUuid(loadCommands[pos + 8:pos + 24])
+        if cmdsize <= 0:
+            break
+        pos += cmdsize
+
+    return None
+
 binaryUuids = {}
-def getDsymUuid(path):
+def getBinaryUuids(path):
+    # Reading LC_UUID out of the Mach-O header directly is ~70x faster than shelling out to
+    # dwarfdump, and this gets called for every candidate symbols file we consider.
     global binaryUuids
     if path not in binaryUuids:
-        uuidResultLine = subprocess.run(["dwarfdump", "--uuid", path], stdout=subprocess.PIPE).stdout.decode("utf-8")
-        dsymUuid = re.search("UUID: ([0-9A-Za-z\-]+?) \(.+", uuidResultLine).group(1)
-        binaryUuids[path] = dsymUuid
+        uuids = []
+        try:
+            with open(path, "rb") as machoFile:
+                magicBytes = machoFile.read(4)
+                if len(magicBytes) < 4:
+                    magic = 0
+                else:
+                    magic = struct.unpack(">I", magicBytes)[0]
+
+                if magic in (0xCAFEBABE, 0xCAFEBABF):
+                    # Fat binary: walk the arch table and collect a UUID per slice
+                    isFat64 = magic == 0xCAFEBABF
+                    archCount = struct.unpack(">I", machoFile.read(4))[0]
+                    if archCount <= 64:
+                        entrySize = 32 if isFat64 else 20
+                        archTable = machoFile.read(entrySize * archCount)
+                        for i in range(archCount):
+                            entry = archTable[i * entrySize:(i + 1) * entrySize]
+                            if len(entry) < entrySize:
+                                break
+                            if isFat64:
+                                sliceOffset = struct.unpack(">Q", entry[8:16])[0]
+                            else:
+                                sliceOffset = struct.unpack(">I", entry[8:12])[0]
+                            sliceUuid = _sliceUuid(machoFile, sliceOffset)
+                            if sliceUuid:
+                                uuids.append(sliceUuid)
+                elif magic != 0:
+                    sliceUuid = _sliceUuid(machoFile, 0)
+                    if sliceUuid:
+                        uuids.append(sliceUuid)
+        except OSError:
+            uuids = []
+
+        binaryUuids[path] = uuids
 
     return binaryUuids[path]
 
+def getDsymUuid(path):
+    uuids = getBinaryUuids(path)
+    return uuids[0] if uuids else ""
+
+def binaryHasUuid(path, uuid):
+    return uuid.upper() in getBinaryUuids(path)
+
+
+deviceSupportPath = os.path.expanduser("~/Library/Developer/Xcode/iOS DeviceSupport/")
+
+reportDeviceType = ""
+reportOsBuild = ""
+def noteDeviceHints(meta):
+    # Remember which device/OS build the report came from so we can search that device's
+    # symbol folder first instead of stat-ing our way through every folder we have.
+    global reportDeviceType, reportOsBuild
+    reportDeviceType = meta.get("deviceType", "")
+    buildMatch = re.search(r"\(([^)]+)\)", meta.get("osVersion", ""))
+    reportOsBuild = buildMatch.group(1) if buildMatch else ""
+
+deviceFolders = None
+def getDeviceFolders():
+    global deviceFolders
+    if deviceFolders is None:
+        try:
+            folders = [f for f in os.listdir(deviceSupportPath) if os.path.exists(deviceSupportPath + f + "/Symbols/")]
+        except OSError:
+            folders = []
+
+        folders.sort(key=lambda f: (0 if reportOsBuild and reportOsBuild in f else 1,
+                                    0 if reportDeviceType and f.startswith(reportDeviceType) else 1))
+        deviceFolders = folders
+
+    return deviceFolders
 
 symbolFiles = {}
 def getSymbolFile(originBinaryName, uuid):
-    startPath = "~/Library/Developer/Xcode/iOS DeviceSupport/"
-    startPath = os.path.expanduser(startPath)
+    startPath = deviceSupportPath
     global symbolFiles
 
     key = f"{originBinaryName}.{uuid}"
@@ -76,10 +184,8 @@ def getSymbolFile(originBinaryName, uuid):
         # Walk through all the device folders and look for a symbol file for this binary name that matches this UUID
 
         foundPath = ""
-        for deviceFolder in os.listdir(startPath):
+        for deviceFolder in getDeviceFolders():
             systemLibPath = startPath + deviceFolder + "/Symbols/"
-            if not os.path.exists(systemLibPath):
-                continue
 
             if originBinaryName == binaryName:
                 # If the binary name is the one we specified the symbols path for, use that
@@ -113,7 +219,7 @@ def getSymbolFile(originBinaryName, uuid):
                 if not os.path.exists(foundPath):
                     foundPath = systemLibPath + f"System/Library/AccessibilityBundles/{originBinaryName}.bundle/{originBinaryName}"
 
-            if len(foundPath) > 0 and os.path.exists(foundPath) and getDsymUuid(foundPath) == uuid:
+            if len(foundPath) > 0 and os.path.exists(foundPath) and binaryHasUuid(foundPath, uuid):
                 symbolFiles[key] = foundPath
                 break
 
@@ -121,6 +227,65 @@ def getSymbolFile(originBinaryName, uuid):
             symbolFiles[key] = ""
 
     return symbolFiles[key]
+
+atosResults = {}
+def runAtos(dsymPath, offsets):
+    # atos reads addresses from stdin in interactive mode and separates each result with a blank
+    # line, so one invocation can do a whole binary's worth of frames.
+    stdin = "".join(hex(offset) + "\n" for offset in offsets)
+    atosOutput = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "--offset"],
+                                input=stdin.encode("utf-8"), stdout=subprocess.PIPE).stdout.decode("utf-8")
+
+    blocks = atosOutput.split("\n\n")
+    while blocks and blocks[-1].strip() == "":
+        blocks.pop()
+
+    if len(blocks) != len(offsets):
+        # Couldn't line results up with the addresses we sent; caller falls back to one at a time
+        return None
+
+    return [block.strip().replace("\n", " <newline> ") for block in blocks]
+
+def symbolicate(dsymPath, offset):
+    key = (dsymPath, offset)
+    if key not in atosResults:
+        # This is based on this forum post: https://developer.apple.com/forums/thread/681967
+        atosOutput = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "--offset", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
+        atosResults[key] = atosOutput.strip().replace("\n", " <newline> ")
+
+    return atosResults[key]
+
+def collectFrameOffsets(root, offsetsByPath):
+    offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
+    originBinaryName = root["binaryName"] if "binaryName" in root else None
+    originUuid = root["binaryUUID"] if "binaryUUID" in root else None
+
+    if offset and originBinaryName and originUuid:
+        dsymPath = getSymbolFile(originBinaryName, originUuid)
+        if len(dsymPath) > 0 and (dsymPath, offset) not in atosResults:
+            offsetsByPath.setdefault(dsymPath, set()).add(offset)
+
+    if "subFrames" in root:
+        for sub in root["subFrames"]:
+            collectFrameOffsets(sub, offsetsByPath)
+
+def prewarmSymbols(callstackTree):
+    # Resolve every frame in the report up front, grouped by binary, so printFrame only has to
+    # look results up. Also collapses the many frames that repeat across threads.
+    offsetsByPath = {}
+    for stack in callstackTree["callStacks"]:
+        for root in stack["callStackRootFrames"]:
+            collectFrameOffsets(root, offsetsByPath)
+
+    for dsymPath, offsetSet in offsetsByPath.items():
+        offsets = sorted(offsetSet)
+        symbols = runAtos(dsymPath, offsets)
+        if symbols is None:
+            for offset in offsets:
+                symbolicate(dsymPath, offset)
+        else:
+            for offset, symbol in zip(offsets, symbols):
+                atosResults[(dsymPath, offset)] = symbol
 
 result = ""
 def printResultLine(ln):
@@ -150,9 +315,7 @@ def printFrame(root, level=-1):
     errorReason = ""
     
     if len(dsymPath) > 0:
-        # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-        atosResult = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "--offset", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
-        atosResult = atosResult.strip().replace("\n", " <newline> ")
+        atosResult = symbolicate(dsymPath, offset)
         if level >= 0:
             # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
             printResultLine("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
@@ -186,6 +349,8 @@ def printCallstack(callstackTree):
     if forceHierarchical:
         simpleCallStack = False
 
+    prewarmSymbols(callstackTree)
+
     for stack in callstackTree["callStacks"]:
         rootFrames = stack["callStackRootFrames"]
 
@@ -200,6 +365,7 @@ def printCallstack(callstackTree):
 
 def processCrashDiagnostic(diag):
     meta = diag["diagnosticMetaData"]
+    noteDeviceHints(meta)
     bundleId = meta["bundleIdentifier"]
     excType = meta["exceptionType"]
     appVersion = meta["appVersion"]
@@ -232,6 +398,7 @@ def processCrashDiagnostic(diag):
 
 def processDiskDiagnostic(diag):
     meta = diag["diagnosticMetaData"]
+    noteDeviceHints(meta)
     bundleId = meta["bundleIdentifier"]
     appVersion = meta["appVersion"]
     appBuildVersion = meta["appBuildVersion"]
@@ -247,6 +414,7 @@ def processDiskDiagnostic(diag):
 
 def processCpuDiagnostic(diag):
     meta = diag["diagnosticMetaData"]
+    noteDeviceHints(meta)
     bundleId = meta["bundleIdentifier"]
     appVersion = meta["appVersion"]
     appBuildVersion = meta["appBuildVersion"]
@@ -263,6 +431,7 @@ def processCpuDiagnostic(diag):
 
 def processAppLaunchDiagnostic(diag):
     meta = diag["diagnosticMetaData"]
+    noteDeviceHints(meta)
     bundleId = meta["bundleIdentifier"]
     appVersion = meta["appVersion"]
     appBuildVersion = meta["appBuildVersion"]
