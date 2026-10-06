@@ -384,7 +384,16 @@ def processCrashDiagnostic(diag):
     printResultLine("Exception code: {0}".format(excCode))
 
     if "terminationReason" in meta:
-        print(f"Termination Reason: {meta["terminationReason"]}")
+        printResultLine("Termination Reason: {0}".format(meta["terminationReason"]))
+
+    if "terminationCategory" in meta:
+        printResultLine("Termination Category: {0}".format(meta["terminationCategory"]))
+
+    if "objectiveCexceptionReason" in meta:
+        objcReason = meta["objectiveCexceptionReason"]
+        printResultLine("Objective-C exception: {0}".format(objcReason.get("exceptionName", "unknown")))
+        if "composedMessage" in objcReason:
+            printResultLine("Exception message: {0}".format(objcReason["composedMessage"]))
 
     signalName = "unknown"
     if signal in signalTypes:
