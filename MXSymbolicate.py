@@ -184,7 +184,11 @@ def getSymbolFile(originBinaryName, uuid):
         # Walk through all the device folders and look for a symbol file for this binary name that matches this UUID
 
         foundPath = ""
-        for deviceFolder in getDeviceFolders():
+        if originBinaryName == binaryName and os.path.exists(symbolsFilePath) and binaryHasUuid(symbolsFilePath, uuid):
+            # The app's own binary doesn't live in any device folder, so check the specified symbols file first
+            symbolFiles[key] = symbolsFilePath
+
+        for deviceFolder in ([] if key in symbolFiles else getDeviceFolders()):
             systemLibPath = startPath + deviceFolder + "/Symbols/"
 
             if originBinaryName == binaryName:
