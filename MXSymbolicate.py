@@ -151,32 +151,45 @@ deviceSupportPath = os.path.expanduser("~/Library/Developer/Xcode/iOS DeviceSupp
 
 reportDeviceType = ""
 reportOsBuild = ""
+reportArch = ""
 def noteDeviceHints(meta):
     # Remember which device/OS build the report came from so we can search that device's
     # symbol folder first instead of stat-ing our way through every folder we have.
-    global reportDeviceType, reportOsBuild
+    global reportDeviceType, reportOsBuild, reportArch
     reportDeviceType = meta.get("deviceType", "")
+    reportArch = meta.get("platformArchitecture", "")
     buildMatch = re.search(r"\(([^)]+)\)", meta.get("osVersion", ""))
     reportOsBuild = buildMatch.group(1) if buildMatch else ""
 
 deviceFolders = None
 def getDeviceFolders():
+    # Returns the Symbols folder to search for each device folder. Older iOS versions keep it at
+    # <device folder>/Symbols/; iOS 27 puts it under an architecture folder: <device folder>/arm64e/Symbols/
     global deviceFolders
     if deviceFolders is None:
+        folders = []
         try:
-            folders = [f for f in os.listdir(deviceSupportPath) if os.path.exists(deviceSupportPath + f + "/Symbols/")]
+            for f in os.listdir(deviceSupportPath):
+                candidates = [deviceSupportPath + f + "/Symbols/"]
+                archFolder = atosArch()
+                for arch in [reportArch, archFolder]:
+                    if arch:
+                        candidates.append(deviceSupportPath + f + "/" + arch + "/Symbols/")
+                for candidate in candidates:
+                    if os.path.exists(candidate):
+                        folders.append((f, candidate))
+                        break
         except OSError:
             folders = []
 
-        folders.sort(key=lambda f: (0 if reportOsBuild and reportOsBuild in f else 1,
-                                    0 if reportDeviceType and f.startswith(reportDeviceType) else 1))
-        deviceFolders = folders
+        folders.sort(key=lambda entry: (0 if reportOsBuild and reportOsBuild in entry[0] else 1,
+                                        0 if reportDeviceType and entry[0].startswith(reportDeviceType) else 1))
+        deviceFolders = [symbolsPath for _, symbolsPath in folders]
 
     return deviceFolders
 
 symbolFiles = {}
 def getSymbolFile(originBinaryName, uuid):
-    startPath = deviceSupportPath
     global symbolFiles
 
     key = f"{originBinaryName}.{uuid}"
@@ -188,8 +201,7 @@ def getSymbolFile(originBinaryName, uuid):
             # The app's own binary doesn't live in any device folder, so check the specified symbols file first
             symbolFiles[key] = symbolsFilePath
 
-        for deviceFolder in ([] if key in symbolFiles else getDeviceFolders()):
-            systemLibPath = startPath + deviceFolder + "/Symbols/"
+        for systemLibPath in ([] if key in symbolFiles else getDeviceFolders()):
 
             if originBinaryName == binaryName:
                 # If the binary name is the one we specified the symbols path for, use that
@@ -232,12 +244,16 @@ def getSymbolFile(originBinaryName, uuid):
 
     return symbolFiles[key]
 
+def atosArch():
+    # Reports can say "arm64e.x1"; atos only knows the base architecture name
+    return reportArch.split(".")[0] if reportArch else "arm64e"
+
 atosResults = {}
 def runAtos(dsymPath, offsets):
     # atos reads addresses from stdin in interactive mode and separates each result with a blank
     # line, so one invocation can do a whole binary's worth of frames.
     stdin = "".join(hex(offset) + "\n" for offset in offsets)
-    atosOutput = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "--offset"],
+    atosOutput = subprocess.run(["atos", "-i", "-arch", atosArch(), "-o", dsymPath, "--offset"],
                                 input=stdin.encode("utf-8"), stdout=subprocess.PIPE).stdout.decode("utf-8")
 
     blocks = atosOutput.split("\n\n")
@@ -254,14 +270,21 @@ def symbolicate(dsymPath, offset):
     key = (dsymPath, offset)
     if key not in atosResults:
         # This is based on this forum post: https://developer.apple.com/forums/thread/681967
-        atosOutput = subprocess.run(["atos", "-i", "-arch", "arm64e", "-o", dsymPath, "--offset", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
+        atosOutput = subprocess.run(["atos", "-i", "-arch", atosArch(), "-o", dsymPath, "--offset", hex(offset)], stdout=subprocess.PIPE).stdout.decode("utf-8")
         atosResults[key] = atosOutput.strip().replace("\n", " <newline> ")
 
     return atosResults[key]
 
+# Version 2 reports don't put binaryName on each frame; they list {name, uuid} pairs once per call stack tree
+binaryNamesByUuid = {}
+def frameBinaryName(root):
+    if "binaryName" in root:
+        return root["binaryName"]
+    return binaryNamesByUuid.get(root.get("binaryUUID"))
+
 def collectFrameOffsets(root, offsetsByPath):
     offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
-    originBinaryName = root["binaryName"] if "binaryName" in root else None
+    originBinaryName = frameBinaryName(root)
     originUuid = root["binaryUUID"] if "binaryUUID" in root else None
 
     if offset and originBinaryName and originUuid:
@@ -273,12 +296,17 @@ def collectFrameOffsets(root, offsetsByPath):
         for sub in root["subFrames"]:
             collectFrameOffsets(sub, offsetsByPath)
 
+def callStackEntries(callstackTree):
+    # Version 1 reports use callStacks/callStackRootFrames, version 2 uses callStackThreads/rootFrames
+    for stack in callstackTree.get("callStacks") or callstackTree.get("callStackThreads") or []:
+        yield stack, stack.get("callStackRootFrames") or stack.get("rootFrames") or []
+
 def prewarmSymbols(callstackTree):
     # Resolve every frame in the report up front, grouped by binary, so printFrame only has to
     # look results up. Also collapses the many frames that repeat across threads.
     offsetsByPath = {}
-    for stack in callstackTree["callStacks"]:
-        for root in stack["callStackRootFrames"]:
+    for stack, rootFrames in callStackEntries(callstackTree):
+        for root in rootFrames:
             collectFrameOffsets(root, offsetsByPath)
 
     for dsymPath, offsetSet in offsetsByPath.items():
@@ -300,7 +328,7 @@ def printResultLine(ln):
 # Pass 0 for level to format the call stack as indented like a spindump, or -1 to print like a crash stack
 def printFrame(root, level=-1):
     offset = root["offsetIntoBinaryTextSegment"] if "offsetIntoBinaryTextSegment" in root else None
-    originBinaryName = root["binaryName"] if "binaryName" in root else None
+    originBinaryName = frameBinaryName(root)
     originUuid = root["binaryUUID"] if "binaryUUID" in root else None
     sampleCount = 0
     if "sampleCount" in root:
@@ -309,8 +337,14 @@ def printFrame(root, level=-1):
     spacer = "|  "
     indentPrefix = spacer * level if level >= 0 else ""
 
-    if not offset or not originBinaryName or not originUuid:
+    if not offset or not originUuid:
         printResultLine(f"{indentPrefix}<missing information in frame>")
+        return
+
+    if not originBinaryName:
+        # Typically a kernel or kext frame; the UUID is all we have to identify the binary
+        printResultLine(f"{indentPrefix}<WARNING, unnamed binary {originUuid}> ({offset})")
+        printSubFrames(root, level)
         return
 
     dsymPath = getSymbolFile(originBinaryName, originUuid)
@@ -320,6 +354,9 @@ def printFrame(root, level=-1):
     
     if len(dsymPath) > 0:
         atosResult = symbolicate(dsymPath, offset)
+        if len(atosResult) == 0:
+            # atos found the binary but had no symbol for this offset
+            atosResult = f"<no symbol> {originBinaryName} ({offset})"
         if level >= 0:
             # This is a cpu or disk write diagnostic. Print it sort of like how spindumps are formatted.
             printResultLine("{0}{1}: {2}".format(indentPrefix, sampleCount, atosResult))
@@ -333,6 +370,9 @@ def printFrame(root, level=-1):
     if processedLine == False:
         printResultLine(f"{indentPrefix}<WARNING, {errorReason}> {originBinaryName} ({offset})")
 
+    printSubFrames(root, level)
+
+def printSubFrames(root, level):
     if "subFrames" in root:
         frames = root["subFrames"]
         if level >= 0:
@@ -353,10 +393,12 @@ def printCallstack(callstackTree):
     if forceHierarchical:
         simpleCallStack = False
 
+    global binaryNamesByUuid
+    binaryNamesByUuid = {b["uuid"]: b["name"] for b in callstackTree.get("binaryInfo", []) if "uuid" in b and "name" in b}
+
     prewarmSymbols(callstackTree)
 
-    for stack in callstackTree["callStacks"]:
-        rootFrames = stack["callStackRootFrames"]
+    for stack, rootFrames in callStackEntries(callstackTree):
 
         # The threadAttributed property indicates whether this is the thread that is "attributed" (crashed in a crash diagnostic)
         crashed = stack["threadAttributed"] if "threadAttributed" in stack else False
@@ -366,6 +408,43 @@ def printCallstack(callstackTree):
             printFrame(root, level=-1 if simpleCallStack else 0)
             printResultLine("")
             index += 1
+
+def formatQuantity(value):
+    # Version 2 reports give measurements as {"unit": "ms", "value": 1014.2}
+    if isinstance(value, dict) and "value" in value:
+        number = value["value"]
+        if isinstance(number, float):
+            number = round(number, 1)
+        return "{0} {1}".format(number, value.get("unit", "")).strip()
+    return value
+
+def isVersion2Payload(payload):
+    # Version 1 payloads have no top-level version (each diagnostic carries its own); version 2 ones say "2.0.0"
+    version = str(payload.get("version", "")).split(".")[0]
+    return version.isdigit() and int(version) >= 2
+
+def metaFromVersion2(env, diag):
+    # Rebuild the diagnosticMetaData dict that version 1 reports have, so the process* functions below can handle both.
+    # In version 2 the device/app info lives once in payload.environment, and the diagnostic only holds its own fields.
+    osInfo = env.get("osVersion", {})
+    osString = "unknown"
+    if isinstance(osInfo, dict) and osInfo.get("number"):
+        osString = "{0} {1} ({2})".format(osInfo.get("platform", ""), osInfo["number"], osInfo.get("buildNumber", ""))
+
+    meta = {"bundleIdentifier": env.get("bundleIdentifier", "unknown"),
+            "appVersion": env.get("applicationVersion", "unknown"),
+            "appBuildVersion": env.get("applicationBuildVersion", "unknown"),
+            "deviceType": env.get("deviceType", ""),
+            "osVersion": osString,
+            "platformArchitecture": env.get("platformArchitecture", ""),
+            "pid": env.get("pid")}
+
+    renamedKeys = {"exceptionReason": "objectiveCexceptionReason", "totalBytesWritten": "writesCaused"}
+    for key, value in diag.items():
+        if key != "callStackTree":
+            meta[renamedKeys.get(key, key)] = value
+
+    return {"diagnosticMetaData": meta, "callStackTree": diag["callStackTree"]}
 
 def processCrashDiagnostic(diag):
     meta = diag["diagnosticMetaData"]
@@ -404,6 +483,11 @@ def processCrashDiagnostic(diag):
         signalName = signalTypes[signal]
 
     printResultLine("Signal: {0}, {1}".format(signal, signalName))
+
+    if "virtualMemoryRegionInfo" in meta:
+        printResultLine("Virtual memory region info:")
+        printResultLine(meta["virtualMemoryRegionInfo"])
+
     printResultLine("")
 
     callstackTree = diag["callStackTree"]
@@ -416,7 +500,7 @@ def processDiskDiagnostic(diag):
     appVersion = meta["appVersion"]
     appBuildVersion = meta["appBuildVersion"]
     osVersion = meta["osVersion"]
-    writes = meta["writesCaused"]
+    writes = formatQuantity(meta["writesCaused"])
 
     printResultLine("Symbolicating disk write exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
     printResultLine("Writes caused: {0}".format(writes))
@@ -432,8 +516,8 @@ def processCpuDiagnostic(diag):
     appVersion = meta["appVersion"]
     appBuildVersion = meta["appBuildVersion"]
     osVersion = meta["osVersion"]
-    totalTime = meta["totalCPUTime"]
-    sampledTime = meta["totalSampledTime"]
+    totalTime = formatQuantity(meta["totalCPUTime"])
+    sampledTime = formatQuantity(meta["totalSampledTime"])
 
     printResultLine("Symbolicating CPU exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
     printResultLine("Total time: {0} of {1}".format(totalTime, sampledTime))
@@ -449,7 +533,7 @@ def processAppLaunchDiagnostic(diag):
     appVersion = meta["appVersion"]
     appBuildVersion = meta["appBuildVersion"]
     osVersion = meta["osVersion"]
-    duration = meta["launchDuration"]
+    duration = formatQuantity(meta["launchDuration"])
 
     #App launch diagnostics should be formatted like spindumps, but the callStackPerThread value is true, seemingly wrongly
     global forceHierarchical
@@ -462,7 +546,38 @@ def processAppLaunchDiagnostic(diag):
     callStack = diag["callStackTree"]
     printCallstack(callStack)
 
+def processHangDiagnostic(diag):
+    meta = diag["diagnosticMetaData"]
+    noteDeviceHints(meta)
+    bundleId = meta["bundleIdentifier"]
+    appVersion = meta["appVersion"]
+    appBuildVersion = meta["appBuildVersion"]
+    duration = formatQuantity(meta["hangDuration"])
 
+    # Hangs sample the main thread over time, so format them like spindumps, as with app launch
+    global forceHierarchical
+    forceHierarchical = True
+
+    printResultLine("Symbolicating hang diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    printResultLine(f"Hang duration: {duration}")
+    printResultLine("")
+
+    callStack = diag["callStackTree"]
+    printCallstack(callStack)
+
+def processMemoryDiagnostic(diag):
+    # Memory exception diagnostics (version 2 only) carry nothing but call stacks
+    meta = diag["diagnosticMetaData"]
+    noteDeviceHints(meta)
+    bundleId = meta["bundleIdentifier"]
+    appVersion = meta["appVersion"]
+    appBuildVersion = meta["appBuildVersion"]
+
+    printResultLine("Symbolicating memory exception diagnostic from {0} {1}.{2}".format(bundleId, appVersion, appBuildVersion))
+    printResultLine("")
+
+    callStack = diag["callStackTree"]
+    printCallstack(callStack)
 
 
 parser = argparse.ArgumentParser()
@@ -523,6 +638,20 @@ with open(jsonPath, 'r') as jsonFile:
 
     payload = jsonData.get("payload") or jsonData
 
+    if isVersion2Payload(payload):
+        # Each diagnostic type is a single object here, rather than a list. The order matters: hang and launch
+        # diagnostics switch call stack formatting to hierarchical, so they go after the others.
+        environment = payload.get("environment", {})
+        versionTwoHandlers = [("crashDiagnostic", processCrashDiagnostic),
+                              ("diskWriteExceptionDiagnostic", processDiskDiagnostic),
+                              ("cpuExceptionDiagnostic", processCpuDiagnostic),
+                              ("memoryExceptionDiagnostic", processMemoryDiagnostic),
+                              ("appLaunchDiagnostic", processAppLaunchDiagnostic),
+                              ("hangDiagnostic", processHangDiagnostic)]
+        for key, handler in versionTwoHandlers:
+            if key in payload:
+                handler(metaFromVersion2(environment, payload[key]))
+
     if "crashDiagnostics" in payload:
         crashDiags = payload["crashDiagnostics"]
         if len(crashDiags) != 1:
@@ -544,7 +673,12 @@ with open(jsonPath, 'r') as jsonFile:
         launchDiags = payload["appLaunchDiagnostics"]
         for diag in launchDiags:
             processAppLaunchDiagnostic(diag)
-    
+
+    if "hangDiagnostics" in payload:
+        hangDiags = payload["hangDiagnostics"]
+        for diag in hangDiags:
+            processHangDiagnostic(diag)
+
     inputFileName = jsonPath.split('/')[-1]
     outputFileName = inputFileName.replace(".json", "_processed.txt")
     outputPath = jsonPath.replace(inputFileName, outputFileName)
