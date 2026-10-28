@@ -489,8 +489,12 @@ else:
     binaryName = symbolFileName.split(".")[0]
 
 if symbolsFilePath.endswith(".xcarchive"):
-    symbolsFilePath = "{0}/dSYMs/{1}.app.dSYM/Contents/Resources/DWARF/{1}".format(symbolsFilePath, binaryName)
-    
+    # The binary can be the app itself or an extension (widget, intent, etc.), which have different dSYM names
+    archivePath = symbolsFilePath
+    symbolsFilePath = "{0}/dSYMs/{1}.app.dSYM/Contents/Resources/DWARF/{1}".format(archivePath, binaryName)
+    if not os.path.exists(symbolsFilePath):
+        symbolsFilePath = "{0}/dSYMs/{1}.appex.dSYM/Contents/Resources/DWARF/{1}".format(archivePath, binaryName)
+
 printResultLine("Binary name: {0}".format(binaryName))
 
 if not os.path.exists(symbolsFilePath):
